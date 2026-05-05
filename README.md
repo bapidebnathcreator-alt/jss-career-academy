@@ -1,27 +1,12 @@
-# JSS Career Academy - Login + Payment Version
+# JSS Career Academy - UPI Payment Version
 
-This version includes:
-- Student login/signup flow
-- Supabase-ready authentication
-- Razorpay payment flow
-- Demo mode when keys are not configured
-- Locked dashboard after login/payment
-- 50 video course structure
-- 95% assessment unlock logic
+This version removes Razorpay and adds manual UPI payment with transaction ID + screenshot upload.
 
-## Deploy on Vercel
-Upload all files to GitHub, then redeploy on Vercel.
+## Vercel Environment Variables
 
-## Environment Variables in Vercel
-Add these later when your accounts are ready:
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=sb_publishable_xxxxx
 
-VITE_SUPABASE_URL
-VITE_SUPABASE_ANON_KEY
-VITE_RAZORPAY_KEY_ID
-RAZORPAY_KEY_ID
-RAZORPAY_KEY_SECRET
+## Supabase setup
 
-Without these keys, the app runs in demo mode.
-
-## Supabase Database
-Open Supabase SQL editor and run `supabase.sql`.
+Run `supabase_upi.sql` in Supabase SQL Editor.
