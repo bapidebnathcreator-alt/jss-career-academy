@@ -98,15 +98,26 @@ function AuthPanel({ supabase, session, setSession }) {
 }
 
 function PaymentPanel({ supabase, session }) {
-  const [form, setForm] = useState({ name: '', email: session?.user?.email || '', phone: '', plan: 'Starter ₹199', amount: 199, transaction_id: '' });
+  const [form, setForm] = useState({
+    plan: 'Starter ₹199',
+    amount: 199,
+    name: '',
+    email: session?.user?.email || '',
+    phone: '',
+    transaction_id: ''
+  });
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState('');
   const [latestPayment, setLatestPayment] = useState(null);
+  const [paymentStep, setPaymentStep] = useState('details');
 
-  useEffect(() => { setForm(f => ({ ...f, email: session?.user?.email || f.email })); }, [session?.user?.email]);
-  useEffect(() => { if (supabase && session) loadLatestPayment(); }, [supabase, session]);
+  useEffect(() => {
+    if (session?.user?.email) setForm(prev => ({ ...prev, email: session.user.email }));
+    fetchLatest();
+  }, [session?.user?.id]);
 
-  async function loadLatestPayment() {
+  async function fetchLatest() {
+    if (!supabase || !session) return;
     const { data, error } = await supabase.from('payments').select('*').order('created_at', { ascending: false }).limit(1).maybeSingle();
     if (!error) setLatestPayment(data);
   }
@@ -118,10 +129,19 @@ function PaymentPanel({ supabase, session }) {
     setForm(prev => ({ ...prev, plan: value, amount }));
   }
 
+  function continueToPayment(e) {
+    e.preventDefault();
+    if (!session) return setMessage('Please signup/login first, then continue to final UPI payment.');
+    if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) return setMessage('Please fill name, email and mobile number first.');
+    setMessage('');
+    setPaymentStep('pay');
+  }
+
   async function submit(e) {
     e.preventDefault();
     if (!supabase) return setMessage('Supabase is not connected.');
     if (!session) return setMessage('Please signup/login first, then submit payment proof.');
+    if (!form.transaction_id.trim()) return setMessage('Please enter UPI Transaction ID / UTR after payment.');
     if (!file) return setMessage('Please upload payment screenshot.');
     setMessage('Uploading screenshot and submitting proof...');
     try {
@@ -151,7 +171,7 @@ function PaymentPanel({ supabase, session }) {
 
   const status = latestPayment?.status;
 
-  return <section id="payment" className="section"><div className="wrap"><h2 className="sectionTitle">UPI Payment + Screenshot Upload</h2><p className="sub">Pay using any UPI app, then submit transaction ID and screenshot. Course unlocks after manual approval.</p><div className="payGrid"><div className="card qrBox"><img className="qr" src={QR_IMAGE} alt="Bapi Debnath UPI QR Code" /><div className="upiLine"><span className="code">{UPI_ID}</span><button className="btn small secondary" onClick={() => navigator.clipboard.writeText(UPI_ID)}>Copy UPI ID</button></div><p className="sub">Scan this QR with Google Pay, PhonePe, Paytm, BHIM or any UPI app.</p></div><div className="card"><h3>Submit Payment Proof</h3>{!session && <div className="notice">Please signup/login before submitting payment proof.</div>}{status && <div className={`status ${status}`}>Latest payment status: {status.toUpperCase()}{status === 'approved' ? ' — Course unlocked.' : status === 'pending' ? ' — Admin approval pending.' : ' — Please contact support.'}</div>}<form className="form" onSubmit={submit}><div><label className="label">Plan</label><select className="input" value={form.plan} onChange={e => updatePlan(e.target.value)}><option>Starter ₹199</option><option>Growth ₹299</option><option>Pro ₹499</option><option>Lifetime ₹1999</option></select></div><div><label className="label">Name</label><input className="input" required value={form.name} onChange={e => update('name', e.target.value)} /></div><div><label className="label">Email</label><input className="input" required type="email" value={form.email} onChange={e => update('email', e.target.value)} /></div><div><label className="label">Mobile Number</label><input className="input" required value={form.phone} onChange={e => update('phone', e.target.value)} /></div><div><label className="label">UPI Transaction ID / UTR</label><input className="input" required value={form.transaction_id} onChange={e => update('transaction_id', e.target.value)} placeholder="Example: 412345678901" /></div><div><label className="label">Payment Screenshot</label><input className="input" required type="file" accept="image/*,.pdf" onChange={e => setFile(e.target.files?.[0] || null)} /></div><button className="btn teal" type="submit">Submit Payment Proof</button>{message && <div className="notice">{message}</div>}</form></div></div></div></section>;
+  return <section id="payment" className="section"><div className="wrap"><h2 className="sectionTitle">Secure UPI Payment Approval</h2><p className="sub">Payment QR and UPI ID stay hidden until the student logs in and fills basic payment details. Course unlocks after manual approval.</p>{status && <div className={`status ${status}`}>Latest payment status: {status.toUpperCase()}{status === 'approved' ? ' — Course unlocked.' : status === 'pending' ? ' — Admin approval pending.' : ' — Please contact support.'}</div>}<div className="payGrid securePayGrid"><div className="card"><div className="stepBadge">Step 1</div><h3>Student Details</h3>{!session && <div className="notice">Please signup/login before continuing to final payment.</div>}<form className="form" onSubmit={continueToPayment}><div><label className="label">Plan</label><select className="input" value={form.plan} onChange={e => updatePlan(e.target.value)}><option>Starter ₹199</option><option>Growth ₹299</option><option>Pro ₹499</option><option>Lifetime ₹1999</option></select></div><div><label className="label">Name</label><input className="input" required value={form.name} onChange={e => update('name', e.target.value)} placeholder="Student full name" /></div><div><label className="label">Email</label><input className="input" required type="email" value={form.email} onChange={e => update('email', e.target.value)} placeholder="student@email.com" /></div><div><label className="label">Mobile Number</label><input className="input" required value={form.phone} onChange={e => update('phone', e.target.value)} placeholder="10 digit mobile number" /></div><button className="btn" type="submit" disabled={!session}>Continue to Final UPI Payment</button>{!session && <button className="btn secondary" type="button" onClick={() => document.getElementById('auth')?.scrollIntoView({behavior:'smooth'})}>Go to Signup / Login</button>}</form></div><div className="card finalPayCard">{paymentStep !== 'pay' ? <div className="hiddenPayment"><div className="lockIcon">🔒</div><h3>UPI QR Hidden for Security</h3><p>First complete student details and login. The QR code and UPI ID will appear only on the final payment step.</p><ul className="sub"><li>Prevents unnecessary public exposure</li><li>Shows QR only to serious students</li><li>Keeps payment flow clean and professional</li></ul></div> : <><div className="stepBadge tealBadge">Step 2</div><h3>Final UPI / QR Payment</h3><div className="qrBox secureQr"><img className="qr" src={QR_IMAGE} alt="Bapi Debnath UPI QR Code" /><div className="upiLine"><span className="code">{UPI_ID}</span><button className="btn small secondary" type="button" onClick={() => navigator.clipboard.writeText(UPI_ID)}>Copy UPI ID</button></div><p className="sub">Pay ₹{form.amount} for {form.plan}. Scan with Google Pay, PhonePe, Paytm, BHIM or any UPI app.</p></div><form className="form" onSubmit={submit}><div><label className="label">UPI Transaction ID / UTR</label><input className="input" required value={form.transaction_id} onChange={e => update('transaction_id', e.target.value)} placeholder="Example: 412345678901" /></div><div><label className="label">Payment Screenshot</label><input className="input" required type="file" accept="image/*,.pdf" onChange={e => setFile(e.target.files?.[0] || null)} /></div><button className="btn teal" type="submit">Submit Payment Proof</button><button className="btn secondary" type="button" onClick={() => setPaymentStep('details')}>Back to Details</button></form></>}{message && <div className="notice">{message}</div>}</div></div></div></section>;
 }
 
 function CourseSection() {
