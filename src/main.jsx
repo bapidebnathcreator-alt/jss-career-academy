@@ -97,12 +97,13 @@ function AuthPanel({ supabase, session, setSession }) {
   return <section id="auth" className="section"><div className="wrap"><h2 className="sectionTitle">Signup / Login</h2><p className="sub">Create your student account before submitting UPI payment proof.</p>{disabled && <div className="notice">Supabase keys are missing. Add SUPABASE_URL and SUPABASE_ANON_KEY in Vercel Environment Variables.</div>}{session ? <div className="card"><h3>Logged in</h3><p>{session.user.email}</p><button className="btn secondary" onClick={logout}>Logout</button></div> : <form className="card form" onSubmit={submit}><div><label className="label">Email</label><input className="input" type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="student@email.com" /></div><div><label className="label">Password</label><input className="input" type="password" required minLength="6" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Minimum 6 characters" /></div><div className="actions"><button type="button" className="btn secondary" onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}>{mode === 'signup' ? 'Switch to Login' : 'Switch to Signup'}</button><button className="btn" type="submit">{mode === 'signup' ? 'Create Account' : 'Login'}</button></div>{message && <div className="notice">{message}</div>}</form>}</div></section>;
 }
 
-function PaymentPanel({ supabase, session }) {
+function PaymentPanel({ supabase, session, setSession }) {
   const [form, setForm] = useState({
     plan: 'Starter ₹199',
     amount: 199,
     name: '',
     email: session?.user?.email || '',
+    password: '',
     phone: '',
     transaction_id: ''
   });
@@ -110,6 +111,8 @@ function PaymentPanel({ supabase, session }) {
   const [message, setMessage] = useState('');
   const [latestPayment, setLatestPayment] = useState(null);
   const [paymentStep, setPaymentStep] = useState('details');
+  const [method, setMethod] = useState('');
+  const [authMode, setAuthMode] = useState('auto');
 
   useEffect(() => {
     if (session?.user?.email) setForm(prev => ({ ...prev, email: session.user.email }));
@@ -118,7 +121,7 @@ function PaymentPanel({ supabase, session }) {
 
   async function fetchLatest() {
     if (!supabase || !session) return;
-    const { data, error } = await supabase.from('payments').select('*').order('created_at', { ascending: false }).limit(1).maybeSingle();
+    const { data, error } = await supabase.from('payments').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
     if (!error) setLatestPayment(data);
   }
 
@@ -129,21 +132,51 @@ function PaymentPanel({ supabase, session }) {
     setForm(prev => ({ ...prev, plan: value, amount }));
   }
 
-  function continueToPayment(e) {
+  async function ensureAccountAndContinue(e) {
     e.preventDefault();
-    if (!session) return setMessage('Please signup/login first, then continue to final UPI payment.');
-    if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) return setMessage('Please fill name, email and mobile number first.');
-    setMessage('');
+    if (!supabase) return setMessage('Supabase is not connected. Please check environment variables.');
+    if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.password.trim()) return setMessage('Please fill name, email, password and mobile number.');
+    if (form.password.length < 6) return setMessage('Password must be minimum 6 characters.');
+
+    setMessage('Creating / logging into student account...');
+    try {
+      let activeSession = session;
+      if (!activeSession) {
+        let result;
+        if (authMode === 'login') {
+          result = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
+        } else {
+          result = await supabase.auth.signUp({ email: form.email, password: form.password });
+          if (result.error && String(result.error.message || '').toLowerCase().includes('already')) {
+            result = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
+          }
+        }
+        if (result.error) throw result.error;
+        const { data } = await supabase.auth.getSession();
+        activeSession = data.session;
+        setSession(activeSession);
+      }
+      setPaymentStep('method');
+      setMessage('Account ready. Choose payment option to continue.');
+    } catch (err) {
+      setMessage(err.message || 'Signup/Login failed. Check Supabase Email provider settings.');
+    }
+  }
+
+  function selectMethod(selectedMethod) {
+    setMethod(selectedMethod);
     setPaymentStep('pay');
+    setMessage(selectedMethod === 'qr' ? 'Scan QR and complete payment, then submit proof.' : 'Copy UPI ID and complete payment, then submit proof.');
   }
 
   async function submit(e) {
     e.preventDefault();
     if (!supabase) return setMessage('Supabase is not connected.');
-    if (!session) return setMessage('Please signup/login first, then submit payment proof.');
+    if (!session) return setMessage('Please create/login account first.');
+    if (!method) return setMessage('Please choose QR Code or UPI ID payment option.');
     if (!form.transaction_id.trim()) return setMessage('Please enter UPI Transaction ID / UTR after payment.');
     if (!file) return setMessage('Please upload payment screenshot.');
-    setMessage('Uploading screenshot and submitting proof...');
+    setMessage('Uploading screenshot and submitting payment proof...');
     try {
       const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, '-');
       const path = `${session.user.id}/${Date.now()}-${safeName}`;
@@ -157,13 +190,14 @@ function PaymentPanel({ supabase, session }) {
         plan: form.plan,
         amount: Number(form.amount),
         upi_id: UPI_ID,
+        payment_method: method,
         transaction_id: form.transaction_id,
         screenshot_path: path,
         status: 'pending'
       }).select().single();
       if (insert.error) throw insert.error;
       setLatestPayment(insert.data);
-      setMessage('Payment proof submitted successfully. Status: Pending approval.');
+      setMessage('Payment proof submitted successfully. Status: Pending approval. You can login using your email and password.');
     } catch (err) {
       setMessage(err.message || 'Payment proof submission failed.');
     }
@@ -171,7 +205,7 @@ function PaymentPanel({ supabase, session }) {
 
   const status = latestPayment?.status;
 
-  return <section id="payment" className="section"><div className="wrap"><h2 className="sectionTitle">Secure UPI Payment Approval</h2><p className="sub">Payment QR and UPI ID stay hidden until the student logs in and fills basic payment details. Course unlocks after manual approval.</p>{status && <div className={`status ${status}`}>Latest payment status: {status.toUpperCase()}{status === 'approved' ? ' — Course unlocked.' : status === 'pending' ? ' — Admin approval pending.' : ' — Please contact support.'}</div>}<div className="payGrid securePayGrid"><div className="card"><div className="stepBadge">Step 1</div><h3>Student Details</h3>{!session && <div className="notice">Please signup/login before continuing to final payment.</div>}<form className="form" onSubmit={continueToPayment}><div><label className="label">Plan</label><select className="input" value={form.plan} onChange={e => updatePlan(e.target.value)}><option>Starter ₹199</option><option>Growth ₹299</option><option>Pro ₹499</option><option>Lifetime ₹1999</option></select></div><div><label className="label">Name</label><input className="input" required value={form.name} onChange={e => update('name', e.target.value)} placeholder="Student full name" /></div><div><label className="label">Email</label><input className="input" required type="email" value={form.email} onChange={e => update('email', e.target.value)} placeholder="student@email.com" /></div><div><label className="label">Mobile Number</label><input className="input" required value={form.phone} onChange={e => update('phone', e.target.value)} placeholder="10 digit mobile number" /></div><button className="btn" type="submit" disabled={!session}>Continue to Final UPI Payment</button>{!session && <button className="btn secondary" type="button" onClick={() => document.getElementById('auth')?.scrollIntoView({behavior:'smooth'})}>Go to Signup / Login</button>}</form></div><div className="card finalPayCard">{paymentStep !== 'pay' ? <div className="hiddenPayment"><div className="lockIcon">🔒</div><h3>UPI QR Hidden for Security</h3><p>First complete student details and login. The QR code and UPI ID will appear only on the final payment step.</p><ul className="sub"><li>Prevents unnecessary public exposure</li><li>Shows QR only to serious students</li><li>Keeps payment flow clean and professional</li></ul></div> : <><div className="stepBadge tealBadge">Step 2</div><h3>Final UPI / QR Payment</h3><div className="qrBox secureQr"><img className="qr" src={QR_IMAGE} alt="Bapi Debnath UPI QR Code" /><div className="upiLine"><span className="code">{UPI_ID}</span><button className="btn small secondary" type="button" onClick={() => navigator.clipboard.writeText(UPI_ID)}>Copy UPI ID</button></div><p className="sub">Pay ₹{form.amount} for {form.plan}. Scan with Google Pay, PhonePe, Paytm, BHIM or any UPI app.</p></div><form className="form" onSubmit={submit}><div><label className="label">UPI Transaction ID / UTR</label><input className="input" required value={form.transaction_id} onChange={e => update('transaction_id', e.target.value)} placeholder="Example: 412345678901" /></div><div><label className="label">Payment Screenshot</label><input className="input" required type="file" accept="image/*,.pdf" onChange={e => setFile(e.target.files?.[0] || null)} /></div><button className="btn teal" type="submit">Submit Payment Proof</button><button className="btn secondary" type="button" onClick={() => setPaymentStep('details')}>Back to Details</button></form></>}{message && <div className="notice">{message}</div>}</div></div></div></section>;
+  return <section id="payment" className="section paymentFirst"><div className="wrap"><h2 className="sectionTitle">Join Course & Pay Securely</h2><p className="sub">Student reaches this page directly, fills account details, chooses QR or UPI, pays, then submits transaction proof. QR/UPI details are hidden until final payment step.</p>{status && <div className={`status ${status}`}>Latest payment status: {status.toUpperCase()}{status === 'approved' ? ' — Course unlocked.' : status === 'pending' ? ' — Admin approval pending.' : ' — Please contact support.'}</div>}<div className="payGrid securePayGrid"><div className="card"><div className="stepBadge">Step 1</div><h3>Create Account / Login + Select Plan</h3><form className="form" onSubmit={ensureAccountAndContinue}><div><label className="label">Plan</label><select className="input" value={form.plan} onChange={e => updatePlan(e.target.value)}><option>Starter ₹199</option><option>Growth ₹299</option><option>Pro ₹499</option><option>Lifetime ₹1999</option></select></div><div><label className="label">Name</label><input className="input" required value={form.name} onChange={e => update('name', e.target.value)} placeholder="Student full name" /></div><div><label className="label">Email ID</label><input className="input" required type="email" value={form.email} onChange={e => update('email', e.target.value)} placeholder="student@email.com" /></div><div><label className="label">Password</label><input className="input" required type="password" minLength="6" value={form.password} onChange={e => update('password', e.target.value)} placeholder="Create or enter password" /></div><div><label className="label">Mobile Number</label><input className="input" required value={form.phone} onChange={e => update('phone', e.target.value)} placeholder="10 digit mobile number" /></div><div className="toggleRow"><button type="button" className={`choiceBtn ${authMode === 'auto' ? 'selected' : ''}`} onClick={() => setAuthMode('auto')}>New Student / Auto</button><button type="button" className={`choiceBtn ${authMode === 'login' ? 'selected' : ''}`} onClick={() => setAuthMode('login')}>Already Registered</button></div><button className="btn" type="submit">Pay ₹{form.amount}</button>{session && <div className="notice successNotice">Logged in as {session.user.email}</div>}</form></div><div className="card finalPayCard">{paymentStep === 'details' && <div className="hiddenPayment"><div className="lockIcon">🔒</div><h3>Payment Details Hidden</h3><p>Fill name, email, password and mobile first. Then click Pay to choose QR code or UPI ID.</p></div>}{paymentStep === 'method' && <div><div className="stepBadge tealBadge">Step 2</div><h3>Choose Payment Mode</h3><p className="sub">Select how you want to pay. Your UPI details will open only after selection.</p><div className="methodGrid"><button className="methodCard" type="button" onClick={() => selectMethod('qr')}><span>📷</span><b>Pay via QR Code</b><small>Scan with any UPI app</small></button><button className="methodCard" type="button" onClick={() => selectMethod('upi')}><span>🏦</span><b>Pay via UPI ID</b><small>Copy UPI ID and pay</small></button></div></div>}{paymentStep === 'pay' && <><div className="stepBadge tealBadge">Step 3</div><h3>{method === 'qr' ? 'Scan QR Code' : 'Pay Using UPI ID'}</h3><div className="qrBox secureQr">{method === 'qr' && <img className="qr" src={QR_IMAGE} alt="Bapi Debnath UPI QR Code" />}{method === 'upi' && <div className="upiOnly"><div className="upiBig">{UPI_ID}</div><button className="btn secondary" type="button" onClick={() => navigator.clipboard.writeText(UPI_ID)}>Copy UPI ID</button></div>}<p className="sub">Pay ₹{form.amount} for {form.plan}. Use Google Pay, PhonePe, Paytm, BHIM or any UPI app.</p></div><form className="form" onSubmit={submit}><div><label className="label">UPI Transaction ID / UTR</label><input className="input" required value={form.transaction_id} onChange={e => update('transaction_id', e.target.value)} placeholder="Example: 412345678901" /></div><div><label className="label">Payment Screenshot</label><input className="input" required type="file" accept="image/*,.pdf" onChange={e => setFile(e.target.files?.[0] || null)} /></div><button className="btn teal" type="submit">Submit Payment Proof</button><button className="btn secondary" type="button" onClick={() => setPaymentStep('method')}>Change Payment Option</button></form></>}{message && <div className="notice">{message}</div>}</div></div></div></section>;
 }
 
 function CourseSection() {
@@ -244,7 +278,7 @@ function App() {
     checkApproval();
   }, [supabase, session]);
 
-  return <><Header go={go} /><Hero go={go} /><AuthPanel supabase={supabase} session={session} setSession={setSession} /><CourseSection /><PricingSection go={go} /><PaymentPanel supabase={supabase} session={session} /><Dashboard approved={approved} /><AdminGuide /><ToolsSection /><footer className="footer"><div className="wrap"><Logo /><div>© 2026 JSS Career Academy. UPI payment enabled.</div></div></footer></>;
+  return <><Header go={go} /><Hero go={go} /><CourseSection /><PricingSection go={go} /><PaymentPanel supabase={supabase} session={session} setSession={setSession} /><Dashboard approved={approved} /><AdminGuide /><ToolsSection /><footer className="footer"><div className="wrap"><Logo /><div>© 2026 JSS Career Academy. UPI payment enabled.</div></div></footer></>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
