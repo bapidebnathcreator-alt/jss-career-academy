@@ -25,3 +25,22 @@
 .upiBig { font-size: clamp(22px, 3vw, 34px); font-weight: 950; color: #0f2a62; word-break: break-all; margin-bottom: 18px; }
 .successNotice { background: #ecfdf5 !important; border-color: #86efac !important; color: #166534 !important; }
 @media (max-width: 760px) { .methodGrid, .toggleRow { grid-template-columns: 1fr; } }
+
+/* Payment UX upgrade */
+.cleanPaymentIntro { min-height: 360px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; border:1px dashed #bae6fd; border-radius:28px; background:linear-gradient(135deg,#ffffff,#f0f9ff); padding:30px; }
+.payNowBtn { position:relative; overflow:hidden; }
+.payNowBtn:after { content:''; position:absolute; top:0; left:-70%; width:55%; height:100%; background:linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent); transform:skewX(-22deg); animation:shine 2.2s infinite; }
+@keyframes shine { 0% { left:-70%; } 55%,100% { left:130%; } }
+.slideInPay { animation: slideInPay .45s ease both; }
+@keyframes slideInPay { from { opacity:0; transform:translateY(18px) scale(.98); } to { opacity:1; transform:translateY(0) scale(1); } }
+.animatedPayment { animation: fadeUp .45s ease both; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
+.pulseIcon { width:78px; height:78px; border-radius:24px; display:grid; place-items:center; background:#e0f2fe; font-size:38px; margin:0 auto 14px; animation:pulsePay 1.5s ease-in-out infinite; }
+@keyframes pulsePay { 0%,100% { transform:scale(1); box-shadow:0 0 0 0 rgba(14,165,233,.30); } 50% { transform:scale(1.04); box-shadow:0 0 0 14px rgba(14,165,233,0); } }
+.revealPayBox { animation: revealPay .55s ease both; }
+@keyframes revealPay { from { opacity:0; transform:scale(.96); filter:blur(3px); } to { opacity:1; transform:scale(1); filter:blur(0); } }
+.paymentSuccess { min-height:520px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; border-radius:28px; background:linear-gradient(135deg,#ecfdf5,#f0f9ff); padding:34px; animation:successPop .45s ease both; }
+@keyframes successPop { from { opacity:0; transform:scale(.95); } to { opacity:1; transform:scale(1); } }
+.successCircle { width:96px; height:96px; border-radius:50%; display:grid; place-items:center; background:#16a34a; color:white; font-size:54px; font-weight:1000; box-shadow:0 18px 45px rgba(22,163,74,.22); margin-bottom:18px; animation:checkBounce .7s ease both; }
+@keyframes checkBounce { 0% { transform:scale(.4); } 65% { transform:scale(1.12); } 100% { transform:scale(1); } }
+.successDetails { background:white; border:1px solid #bbf7d0; border-radius:20px; padding:18px; display:grid; gap:8px; margin:18px 0; color:#14532d; min-width:min(360px,100%); }
